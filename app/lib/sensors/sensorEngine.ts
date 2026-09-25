@@ -1,13 +1,25 @@
-﻿import { SensorConfig, TelemetryReading } from '../types/sensor';
+import { SensorConfig, TelemetryReading } from '../types/sensor';
 import { GpioAdapter } from './gpioAdapter';
 import { IpAdapter } from './ipAdapter';
+import { subConfig } from '../config/env';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
+
+export interface RoomPinAssignment {
+  roomId: string;
+  roomName?: string;
+  property: 'light_gpio' | 'temp_gpio' | 'ac_gpio';
+  pin: number | null;
+}
 
 export class SensorEngine {
   private static instance: SensorEngine;
   private sensors: Map<string, SensorConfig> = new Map();
-  private deviceId: string = 'sub-controller-node-01';
+  private deviceId: string = subConfig.deviceId;
+  private supabase: SupabaseClient | null = null;
+  private assignments: RoomPinAssignment[] = [];
 
   private constructor() {
+    this.initSupabase();
     this.registerDefaultSensors();
   }
 
@@ -16,6 +28,16 @@ export class SensorEngine {
       SensorEngine.instance = new SensorEngine();
     }
     return SensorEngine.instance;
+  }
+
+  private initSupabase(): void {
+    if (subConfig.supabaseUrl && subConfig.supabaseKey) {
+      try {
+        this.supabase = createClient(subConfig.supabaseUrl, subConfig.supabaseKey);
+      } catch (err) {
+        console.warn('[SensorEngine] Supabase init warning:', (err as Error).message);
+      }
+    }
   }
 
   private registerDefaultSensors(): void {
@@ -62,6 +84,106 @@ export class SensorEngine {
       pollIntervalMs: 10000,
       enabled: true,
     });
+  }
+
+  /**
+   * Sync sensor GPIO pins and room associations from Supabase rooms table.
+   */
+  public async syncFromSupabase(): Promise<boolean> {
+    if (!this.supabase) return false;
+
+    try {
+      const { data: rooms, error } = await this.supabase
+        .from('rooms')
+        .select('id, name, light_gpio, temp_gpio, ac_gpio');
+
+      if (error || !Array.isArray(rooms)) return false;
+
+      const newAssignments: RoomPinAssignment[] = [];
+
+      for (const room of rooms) {
+        if (room.temp_gpio !== null && room.temp_gpio !== undefined) {
+          const sensorId = `sensor-gpio-temp-${room.id}`;
+          this.registerSensor({
+            id: sensorId,
+            name: `${room.name} Temperature (GPIO ${room.temp_gpio})`,
+            type: 'temperature',
+            transport: 'gpio',
+            gpioConfig: { pin: Number(room.temp_gpio) },
+            roomId: room.id,
+            pollIntervalMs: 3000,
+            enabled: true,
+          });
+          newAssignments.push({
+            roomId: room.id,
+            roomName: room.name,
+            property: 'temp_gpio',
+            pin: Number(room.temp_gpio),
+          });
+        }
+
+        if (room.light_gpio !== null && room.light_gpio !== undefined) {
+          const sensorId = `sensor-gpio-relay-${room.id}`;
+          this.registerSensor({
+            id: sensorId,
+            name: `${room.name} Light Relay (GPIO ${room.light_gpio})`,
+            type: 'relay',
+            transport: 'gpio',
+            gpioConfig: { pin: Number(room.light_gpio), direction: 'out' },
+            roomId: room.id,
+            pollIntervalMs: 5000,
+            enabled: true,
+          });
+          newAssignments.push({
+            roomId: room.id,
+            roomName: room.name,
+            property: 'light_gpio',
+            pin: Number(room.light_gpio),
+          });
+        }
+      }
+
+      this.assignments = newAssignments;
+      return true;
+    } catch (err) {
+      console.warn('[SensorEngine] Sync warning:', (err as Error).message);
+      return false;
+    }
+  }
+
+  /**
+   * Explicitly assign a GPIO pin to a room and sensor type on this controller.
+   */
+  public assignRoomPin(roomId: string, property: 'light_gpio' | 'temp_gpio' | 'ac_gpio', pin: number | null, roomName?: string): void {
+    const existingIdx = this.assignments.findIndex(a => a.roomId === roomId && a.property === property);
+    if (existingIdx >= 0) {
+      this.assignments[existingIdx].pin = pin;
+      if (roomName) this.assignments[existingIdx].roomName = roomName;
+    } else {
+      this.assignments.push({ roomId, roomName, property, pin });
+    }
+
+    const sensorType = property === 'temp_gpio' ? 'temperature' : property === 'light_gpio' ? 'relay' : 'custom';
+    const sensorId = `sensor-gpio-${property}-${roomId}`;
+
+    if (pin === null) {
+      this.unregisterSensor(sensorId);
+    } else {
+      this.registerSensor({
+        id: sensorId,
+        name: `${roomName || roomId} ${property} (GPIO ${pin})`,
+        type: sensorType,
+        transport: 'gpio',
+        gpioConfig: { pin, direction: property === 'light_gpio' ? 'out' : 'in' },
+        roomId,
+        pollIntervalMs: 3000,
+        enabled: true,
+      });
+    }
+  }
+
+  public getAssignments(): RoomPinAssignment[] {
+    return [...this.assignments];
   }
 
   public registerSensor(config: SensorConfig): void {
