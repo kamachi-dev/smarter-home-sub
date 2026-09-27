@@ -1,8 +1,6 @@
-﻿feat: initialize smarter-home-sub repository with Next.js, Supabase Realtime, dual GPIO/IP addressing, and mDNS discovery
+chore(config): update default Supabase URL and keys to local Raspberry Pi instance
 
-- Scaffold Next.js 15 sub-controller daemon application structure in smarter-home-sub.
-- Implement dual sensor engine supporting local GPIO hardware pins and network IP-address REST endpoints.
-- Integrate mDNS ZeroConf (bonjour-service) and Supabase Realtime Presence for clean sub-controller auto-discovery without manual IP setup.
-- Add Supabase Realtime broadcast and Postgres CDC integration for sensor telemetry.
-- Create modern glassmorphic dashboard UI and REST API endpoints (/api/sensors, /api/devices, /api/telemetry).
-- Add full Vitest integration test suite covering sensor engines, discovery protocols, and API responses.
+- Update fallback Supabase URL in app/lib/config/env.ts to point to local Raspberry Pi instance
+- Update fallback Supabase key to local Anon key
+- Update fallback MQTT broker URL to local Raspberry Pi host
+- Add .env.example with local environment variables template
