@@ -1,8 +1,3 @@
-feat(sync): add MQTT command listener and controller-aware sensor/lighting sync
+fix(sync): fallback to home_states room_controllers in realtime room listener
 
-- Connected `MqttTransmitterDaemon` message listener to `smarterhome/{homeToken}/commands/{deviceId}` for physical relay/light switching.
-- Added Supabase Realtime broadcast and `rooms` table CDC listener to actuate lighting relays assigned to this sub-controller.
-- Updated `SensorEngine.syncFromSupabase` to check `home_states` (`room_controllers`) and only bind GPIO pins assigned to this sub-controller node.
-- Added `room` and `roomName` metadata to `TelemetryReading` so live MQTT stream maps seamlessly to dashboard room cards.
-- Cleaned up JSX syntax across client components and fixed Supabase query error handling.
-- Added Vitest unit test coverage for relay actuation and telemetry room formatting.
+- app/lib/sync/supabaseRealtimeSync.ts: in postgres_changes rooms listener, check home_states room_controllers mapping when light_controller is not present on room record.

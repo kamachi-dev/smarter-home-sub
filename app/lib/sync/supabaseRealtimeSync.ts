@@ -72,7 +72,22 @@ export class SupabaseRealtimeSyncDaemon {
 
           // Check if room light is assigned to this sub-controller
           const currentDeviceId = (process.env.SUB_CONTROLLER_ID || 'sub-ctrl-node-01').toLowerCase();
-          const lightCtrl = (room.light_controller || '').toLowerCase();
+          let lightCtrl = (room.light_controller || '').toLowerCase();
+
+          // Fallback to home_states room_controllers mapping if column not on room record
+          if (!lightCtrl && this.supabase) {
+            try {
+              const { data: ctrlData } = await this.supabase
+                .from('home_states')
+                .select('value')
+                .eq('key', 'room_controllers')
+                .maybeSingle();
+              if (ctrlData?.value?.[room.id]?.light_controller) {
+                lightCtrl = String(ctrlData.value[room.id].light_controller).toLowerCase();
+              }
+            } catch (_) {}
+          }
+
           const isLightAssignedToThisSub = lightCtrl === currentDeviceId ||
             (currentDeviceId.includes('sub') && lightCtrl.includes('sub'));
 
