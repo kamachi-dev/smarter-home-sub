@@ -52,6 +52,7 @@ export class IpAdapter {
       timestamp: new Date().toISOString(),
       deviceId,
       roomId: config.roomId,
+      room: config.roomName || config.roomId,
     };
   }
 }

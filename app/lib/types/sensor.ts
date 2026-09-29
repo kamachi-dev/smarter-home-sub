@@ -1,4 +1,4 @@
-﻿export type TransportType = 'gpio' | 'ip' | 'mdns';
+export type TransportType = 'gpio' | 'ip' | 'mdns';
 
 export type SensorType = 'temperature' | 'humidity' | 'relay' | 'camera' | 'presence' | 'custom';
 
@@ -31,6 +31,7 @@ export interface SensorConfig {
   ipConfig?: IpConfig;
   mdnsConfig?: MdnsConfig;
   roomId?: string;
+  roomName?: string;
   pollIntervalMs?: number;
   enabled: boolean;
   metadata?: Record<string, any>;
@@ -46,6 +47,7 @@ export interface TelemetryReading {
   timestamp: string;
   deviceId: string;
   roomId?: string;
+  room?: string;
 }
 
 export interface SubControllerDevice {
@@ -68,4 +70,14 @@ export interface RealtimeSyncStatus {
   lastSyncTime: string | null;
   totalBroadcasts: number;
   lastError: string | null;
+}
+
+export interface SubCommand {
+  action: 'set_power' | 'toggle_power' | 'sync_pins';
+  property?: 'light_gpio' | 'temp_gpio' | 'ac_gpio';
+  roomId?: string;
+  pin?: number | null;
+  power?: boolean;
+  deviceId?: string;
+  timestamp?: string;
 }

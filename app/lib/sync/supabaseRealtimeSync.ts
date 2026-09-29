@@ -1,4 +1,4 @@
-﻿import { createClient, SupabaseClient, RealtimeChannel } from '@supabase/supabase-js';
+import { createClient, SupabaseClient, RealtimeChannel } from '@supabase/supabase-js';
 import { TelemetryReading, RealtimeSyncStatus, SubControllerDevice } from '../types/sensor';
 
 export class SupabaseRealtimeSyncDaemon {
@@ -49,8 +49,43 @@ export class SupabaseRealtimeSyncDaemon {
       });
 
       this.channel
-        .on('broadcast', { event: 'sensor_command' }, (payload) => {
+        .on('broadcast', { event: 'sensor_command' }, async ({ payload }) => {
           console.log('[SupabaseSync] Incoming sensor command:', payload);
+          if (payload && payload.action === 'set_power') {
+            const { SensorEngine } = await import('../sensors/sensorEngine');
+            const { GpioAdapter } = await import('../sensors/gpioAdapter');
+            const engine = SensorEngine.getInstance();
+            const power = Boolean(payload.power);
+
+            if (payload.pin !== null && payload.pin !== undefined && !isNaN(Number(payload.pin))) {
+              await GpioAdapter.writeGpioPin(Number(payload.pin), power);
+            }
+            if (payload.roomId) {
+              const sensorId = `sensor-gpio-relay-${payload.roomId}`;
+              await engine.updateRelayState(sensorId, power);
+            }
+          }
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms' }, async (payload: any) => {
+          const room = payload.new;
+          if (!room) return;
+
+          // Check if room light is assigned to this sub-controller
+          const currentDeviceId = (process.env.SUB_CONTROLLER_ID || 'sub-ctrl-node-01').toLowerCase();
+          const lightCtrl = (room.light_controller || '').toLowerCase();
+          const isLightAssignedToThisSub = lightCtrl === currentDeviceId ||
+            (currentDeviceId.includes('sub') && lightCtrl.includes('sub'));
+
+          if (isLightAssignedToThisSub && typeof room.lights_power === 'boolean') {
+            const { SensorEngine } = await import('../sensors/sensorEngine');
+            const { GpioAdapter } = await import('../sensors/gpioAdapter');
+            const engine = SensorEngine.getInstance();
+
+            if (room.light_gpio !== null && room.light_gpio !== undefined) {
+              await GpioAdapter.writeGpioPin(Number(room.light_gpio), room.lights_power);
+            }
+            await engine.updateRelayState(`sensor-gpio-relay-${room.id}`, room.lights_power);
+          }
         })
         .subscribe((status) => {
           if (status === 'SUBSCRIBED') {
@@ -89,7 +124,7 @@ export class SupabaseRealtimeSyncDaemon {
           unit: r.unit || null,
           created_at: r.timestamp,
         }));
-        await this.supabase.from('sensor_telemetry').insert(rows).catch(() => {});
+        await this.supabase.from('sensor_telemetry').insert(rows);
 
         for (const r of readings) {
           if (r.roomId) {
@@ -101,7 +136,7 @@ export class SupabaseRealtimeSyncDaemon {
             } else if (r.type === 'relay' && typeof r.value === 'boolean') {
               updates.lights_power = r.value;
             }
-            await this.supabase.from('rooms').update(updates).eq('id', r.roomId).catch(() => {});
+            await this.supabase.from('rooms').update(updates).eq('id', r.roomId);
           }
         }
       } catch (err) {

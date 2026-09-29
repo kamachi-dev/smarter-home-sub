@@ -87,22 +87,46 @@ export class SensorEngine {
   }
 
   /**
-   * Sync sensor GPIO pins and room associations from Supabase rooms table.
+   * Sync sensor GPIO pins and room associations from Supabase rooms and controller state.
    */
   public async syncFromSupabase(): Promise<boolean> {
     if (!this.supabase) return false;
 
     try {
+      // 1. Fetch room_controllers mapping from home_states
+      let roomControllers: Record<string, Record<string, string>> = {};
+      try {
+        const { data: stateData } = await this.supabase
+          .from('home_states')
+          .select('value')
+          .eq('key', 'room_controllers')
+          .maybeSingle();
+
+        if (stateData?.value && typeof stateData.value === 'object') {
+          roomControllers = stateData.value as Record<string, Record<string, string>>;
+        }
+      } catch (err) {
+        // Fallback if home_states cannot be queried
+      }
+
       const { data: rooms, error } = await this.supabase
         .from('rooms')
-        .select('id, name, light_gpio, temp_gpio, ac_gpio');
+        .select('*');
 
       if (error || !Array.isArray(rooms)) return false;
 
       const newAssignments: RoomPinAssignment[] = [];
+      const currentDeviceId = this.deviceId.toLowerCase();
 
       for (const room of rooms) {
-        if (room.temp_gpio !== null && room.temp_gpio !== undefined) {
+        const roomCtrlMap = roomControllers[room.id] || {};
+
+        // Temperature controller check
+        const tempCtrl = (room.temp_controller || roomCtrlMap['temp_gpio'] || 'main').toLowerCase();
+        const isTempAssignedToThisSub = tempCtrl === currentDeviceId ||
+          (currentDeviceId.includes('sub') && tempCtrl.includes('sub'));
+
+        if (room.temp_gpio !== null && room.temp_gpio !== undefined && isTempAssignedToThisSub) {
           const sensorId = `sensor-gpio-temp-${room.id}`;
           this.registerSensor({
             id: sensorId,
@@ -111,6 +135,7 @@ export class SensorEngine {
             transport: 'gpio',
             gpioConfig: { pin: Number(room.temp_gpio) },
             roomId: room.id,
+            roomName: room.name,
             pollIntervalMs: 3000,
             enabled: true,
           });
@@ -122,7 +147,12 @@ export class SensorEngine {
           });
         }
 
-        if (room.light_gpio !== null && room.light_gpio !== undefined) {
+        // Light controller check
+        const lightCtrl = (room.light_controller || roomCtrlMap['light_gpio'] || 'main').toLowerCase();
+        const isLightAssignedToThisSub = lightCtrl === currentDeviceId ||
+          (currentDeviceId.includes('sub') && lightCtrl.includes('sub'));
+
+        if (room.light_gpio !== null && room.light_gpio !== undefined && isLightAssignedToThisSub) {
           const sensorId = `sensor-gpio-relay-${room.id}`;
           this.registerSensor({
             id: sensorId,
@@ -131,6 +161,7 @@ export class SensorEngine {
             transport: 'gpio',
             gpioConfig: { pin: Number(room.light_gpio), direction: 'out' },
             roomId: room.id,
+            roomName: room.name,
             pollIntervalMs: 5000,
             enabled: true,
           });
@@ -176,6 +207,7 @@ export class SensorEngine {
         transport: 'gpio',
         gpioConfig: { pin, direction: property === 'light_gpio' ? 'out' : 'in' },
         roomId,
+        roomName: roomName || roomId,
         pollIntervalMs: 3000,
         enabled: true,
       });

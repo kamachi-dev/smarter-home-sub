@@ -1,4 +1,4 @@
-﻿import { GpioConfig, TelemetryReading, SensorConfig } from '../types/sensor';
+import { GpioConfig, TelemetryReading, SensorConfig } from '../types/sensor';
 
 export class GpioAdapter {
   private static virtualState: Map<number, boolean | number> = new Map();
@@ -41,6 +41,7 @@ export class GpioAdapter {
       timestamp: new Date().toISOString(),
       deviceId,
       roomId: config.roomId,
+      room: config.roomName || config.roomId,
     };
   }
 

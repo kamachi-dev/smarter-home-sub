@@ -55,6 +55,34 @@ export class MqttTransmitterDaemon {
         });
       });
 
+      this.client.on('message', async (topic, payload) => {
+        try {
+          const raw = payload.toString();
+          const cmd = JSON.parse(raw);
+          console.log(`[MqttTransmitter] Received command on ${topic}:`, cmd);
+
+          if (cmd.action === 'set_power') {
+            const { SensorEngine } = await import('../sensors/sensorEngine');
+            const { GpioAdapter } = await import('../sensors/gpioAdapter');
+            const engine = SensorEngine.getInstance();
+            const power = Boolean(cmd.power);
+
+            // 1. Actuate direct GPIO pin if specified
+            if (cmd.pin !== null && cmd.pin !== undefined && !isNaN(Number(cmd.pin))) {
+              await GpioAdapter.writeGpioPin(Number(cmd.pin), power);
+            }
+
+            // 2. Actuate any registered relay matching room or pin
+            if (cmd.roomId) {
+              const sensorId = `sensor-gpio-relay-${cmd.roomId}`;
+              await engine.updateRelayState(sensorId, power);
+            }
+          }
+        } catch (err) {
+          console.warn('[MqttTransmitter] Failed to parse/handle command:', (err as Error).message);
+        }
+      });
+
       this.client.on('error', (err) => {
         this.status.connected = false;
         this.status.lastError = err.message;
